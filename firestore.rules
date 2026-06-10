@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default safety catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable validation primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSupplier(data) {
+      return data.id is string && data.name is string && data.name.size() <= 200;
+    }
+
+    function isValidCatalogItem(data) {
+      return data.id is string && data.title is string && data.title.size() <= 200 && data.price is number;
+    }
+
+    function isValidChat(data) {
+      return data.id is string && data.supplierId is string && data.supplierName is string;
+    }
+
+    function isValidMessage(data) {
+      return data.id is string && data.sender is string && data.text is string && data.text.size() <= 2000;
+    }
+
+    function isValidSOS(data) {
+      return data.id is string && data.type is string && data.status is string;
+    }
+
+    // 1. Suppliers
+    match /suppliers/{supplierId} {
+      allow read: if true;
+      allow write: if isValidId(supplierId) && (request.resource == null || isValidSupplier(request.resource.data));
+    }
+
+    // 2. Catalog Items
+    match /catalog/{itemId} {
+      allow read: if true;
+      allow write: if isValidId(itemId) && (request.resource == null || isValidCatalogItem(request.resource.data));
+    }
+
+    // 3. Chat Threads
+    match /chats/{chatId} {
+      allow read: if true;
+      allow write: if isValidId(chatId) && (request.resource == null || isValidChat(request.resource.data));
+
+      // 4. Chat Messages Subcollection
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if isValidId(messageId) && (request.resource == null || isValidMessage(request.resource.data));
+      }
+    }
+
+    // 5. SOS Requests
+    match /sos_requests/{requestId} {
+      allow read: if true;
+      allow write: if isValidId(requestId) && (request.resource == null || isValidSOS(request.resource.data));
+    }
+
+    // 6. Truck Profiles
+    match /truck_profiles/{profileId} {
+      allow read: if true;
+      allow write: if isValidId(profileId) && (request.resource == null || request.resource.data.brand is string);
+    }
+
+    // 7. Supplier Dashboard Stats
+    match /stats/{statsId} {
+      allow read: if true;
+      allow write: if isValidId(statsId) && (request.resource == null || request.resource.data.views is number);
+    }
+  }
+}

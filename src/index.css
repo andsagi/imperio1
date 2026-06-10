@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;605;700;800;900&family=Space+Grotesk:wght@400;500;600;705;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  
+  --color-[#FF8C00]: #FF8C00;
+  --color-[#121212]: #121212;
+  --color-[#1A1A1A]: #1A1A1A;
+  --color-[#1E1E1E]: #1E1E1E;
+}
+
+/* Custom styles for Sophisticated Dark theme */
+body {
+  background-color: #121212;
+  color: #F8FAFC;
+  font-family: "Inter", sans-serif;
+}
+
+/* Scrollbar customizations */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #121212;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF8C00;
+}
+
+/* Custom focus ring styling for inputs */
+input:focus, select:focus, textarea:focus {
+  border-color: #FF8C00 !important;
+  box-shadow: 0 0 0 1px rgba(255, 140, 0, 0.25) !important;
+}
+
+/* Premium utility animations and custom hover states */
+.premium-glow {
+  box-shadow: 0 4px 20px -2px rgba(255, 140, 0, 0.12);
+}
+
+.premium-card {
+  background-color: #1E1E1E;
+  border: 1px solid #2A2A2A;
+  border-radius: 1rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.premium-card:hover {
+  border-color: #FF8C00;
+  box-shadow: 0 4px 24px -4px rgba(255, 140, 0, 0.15);
+}
