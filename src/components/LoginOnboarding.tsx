@@ -15,6 +15,89 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Seller } from '../types';
 import ImperioLogo from './ImperioLogo';
 
+// CPF and CNPJ Validation for Brazilian Legislation compliance
+export function validateCPF(cpf: string): boolean {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  if (cleanCPF.length !== 11) return false;
+  if (/^(\d)\1+$/.test(cleanCPF)) return false;
+  
+  let sum = 0;
+  let remainder;
+  
+  for (let i = 1; i <= 9; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i), 10) * (11 - i);
+  }
+  
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(9, 10), 10)) return false;
+  
+  sum = 0;
+  for (let i = 1; i <= 10; i++) {
+    sum += parseInt(cleanCPF.substring(i - 1, i), 10) * (12 - i);
+  }
+  
+  remainder = (sum * 10) % 11;
+  if (remainder === 10 || remainder === 11) remainder = 0;
+  if (remainder !== parseInt(cleanCPF.substring(10, 11), 10)) return false;
+  
+  return true;
+}
+
+export function validateCNPJ(cnpj: string): boolean {
+  const cleanCNPJ = cnpj.replace(/\D/g, '');
+  if (cleanCNPJ.length !== 14) return false;
+  if (/^(\d)\1+$/.test(cleanCNPJ)) return false;
+  
+  let size = cleanCNPJ.length - 2;
+  let numbers = cleanCNPJ.substring(0, size);
+  const digits = cleanCNPJ.substring(size);
+  let sum = 0;
+  let pos = size - 7;
+  
+  for (let i = size; i >= 1; i--) {
+    sum += parseInt(numbers.charAt(size - i), 10) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  
+  let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  if (result !== parseInt(digits.charAt(0), 10)) return false;
+  
+  size = size + 1;
+  numbers = cleanCNPJ.substring(0, size);
+  sum = 0;
+  pos = size - 7;
+  
+  for (let i = size; i >= 1; i--) {
+    sum += parseInt(numbers.charAt(size - i), 10) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  
+  result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+  if (result !== parseInt(digits.charAt(1), 10)) return false;
+  
+  return true;
+}
+
+export const formatCPF = (v: string): string => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 11) v = v.substring(0, 11);
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  return v;
+};
+
+export const formatCNPJ = (v: string): string => {
+  v = v.replace(/\D/g, "");
+  if (v.length > 14) v = v.substring(0, 14);
+  v = v.replace(/^(\d{2})(\d)/, "$1.$2");
+  v = v.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+  v = v.replace(/\.(\d{3})(\d)/, ".$1/$2");
+  v = v.replace(/(\d{4})(\d)/, "$1-$2");
+  return v;
+};
+
 interface LoginOnboardingProps {
   onLogin: (role: 'trucker' | 'supplier' | 'seller', username: string, extraData?: any) => void;
 }
@@ -30,6 +113,8 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
   const [truckModel, setTruckModel] = useState('Volvo FH 540 Globetrotter');
   const [companyName, setCompanyName] = useState('');
   const [cnpj, setCnpj] = useState('');
+  const [truckerDocType, setTruckerDocType] = useState<'cpf' | 'cnpj'>('cpf');
+  const [truckerDocValue, setTruckerDocValue] = useState('');
   
   // Seller fields
   const [sellerEmail, setSellerEmail] = useState('');
@@ -231,9 +316,22 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
     if (!role) return;
 
     if (role === 'trucker') {
+      const isDocValid = truckerDocType === 'cpf' 
+        ? validateCPF(truckerDocValue) 
+        : validateCNPJ(truckerDocValue);
+        
+      if (!isDocValid) {
+        handleAlert('error', `O ${truckerDocType.toUpperCase()} informado (${truckerDocValue || 'Vazio'}) é inválido perante a legislação nacional brasileira (Receita Federal). Corrija-o para continuar.`);
+        return;
+      }
+      
       const name = username || 'Amigo do Trecho';
-      await completeLogin('trucker', name, { truckModel, phone });
+      await completeLogin('trucker', name, { truckModel, phone, clientDocType: truckerDocType, clientDocValue: truckerDocValue });
     } else if (role === 'supplier') {
+      if (!validateCNPJ(cnpj)) {
+        handleAlert('error', `O CNPJ informado (${cnpj || 'Vazio'}) é inválido perante a legislação brasileira (Receita Federal). Corrija-o para continuar.`);
+        return;
+      }
       const name = companyName || 'Tietê Diesel Autopeças';
       await completeLogin('supplier', name, { cnpj, phone });
     } else {
@@ -595,7 +693,7 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
                       placeholder="Ex: Roberto da Silva"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white"
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-sans"
                     />
                   </div>
 
@@ -607,8 +705,86 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
                       required
                       placeholder="Ex: (11) 99999-9999"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white"
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, "");
+                        if (val.length > 11) val = val.substring(0, 11);
+                        if (val.length > 6) {
+                          val = `(${val.substring(0, 2)}) ${val.substring(2, 7)}-${val.substring(7)}`;
+                        } else if (val.length > 2) {
+                          val = `(${val.substring(0, 2)}) ${val.substring(2)}`;
+                        } else if (val.length > 0) {
+                          val = `(${val}`;
+                        }
+                        setPhone(val);
+                      }}
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-sans"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Tipo de Documento (Legislação Brasileira)</label>
+                    <div className="grid grid-cols-2 gap-2 mt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTruckerDocType('cpf');
+                          setTruckerDocValue('');
+                        }}
+                        className={`py-1.5 px-3 rounded-lg border text-[10px] font-bold uppercase transition-all ${
+                          truckerDocType === 'cpf'
+                            ? 'bg-[#FF8C00]/10 border-[#FF8C00] text-[#FF8C00]'
+                            : 'bg-[#1C1C1C] border-neutral-800 text-slate-400'
+                        }`}
+                      >
+                        CPF (Pessoa Física)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTruckerDocType('cnpj');
+                          setTruckerDocValue('');
+                        }}
+                        className={`py-1.5 px-3 rounded-lg border text-[10px] font-bold uppercase transition-all ${
+                          truckerDocType === 'cnpj'
+                            ? 'bg-[#FF8C00]/10 border-[#FF8C00] text-[#FF8C00]'
+                            : 'bg-[#1C1C1C] border-neutral-800 text-slate-400'
+                        }`}
+                      >
+                        CNPJ (Pessoa Jurídica)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        {truckerDocType === 'cpf' ? 'CPF do Motorista' : 'CNPJ da Transportadora'}
+                      </label>
+                      {truckerDocValue.length > 0 && (
+                        <span className={`text-[9.5px] font-extrabold uppercase font-sans ${
+                          (truckerDocType === 'cpf' ? validateCPF(truckerDocValue) : validateCNPJ(truckerDocValue))
+                            ? 'text-emerald-400'
+                            : 'text-rose-500'
+                        }`}>
+                          {(truckerDocType === 'cpf' ? validateCPF(truckerDocValue) : validateCNPJ(truckerDocValue))
+                            ? '✓ Válido'
+                            : '✗ Inválido'}
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      id="trucker-document-input"
+                      type="text"
+                      required
+                      placeholder={truckerDocType === 'cpf' ? 'Ex: 123.456.789-10' : 'Ex: 12.345.678/0001-99'}
+                      value={truckerDocValue}
+                      onChange={(e) => {
+                        const formatted = truckerDocType === 'cpf' 
+                          ? formatCPF(e.target.value) 
+                          : formatCNPJ(e.target.value);
+                        setTruckerDocValue(formatted);
+                      }}
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-mono"
                     />
                   </div>
 
@@ -618,7 +794,7 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
                       id="trucker-model-select"
                       value={truckModel}
                       onChange={(e) => setTruckModel(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white cursor-pointer"
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white cursor-pointer font-sans"
                     >
                       <option value="Volvo FH 540 Globetrotter">Volvo FH 540 Globetrotter</option>
                       <option value="Scania R450 Streamline">Scania R450 Streamline</option>
@@ -641,20 +817,29 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
                       placeholder="Ex: Auto Peças Tietê Diesel"
                       value={companyName}
                       onChange={(e) => setCompanyName(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white"
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-sans"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">CNPJ da Empresa</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">CNPJ da Empresa</label>
+                      {cnpj.length > 0 && (
+                        <span className={`text-[9.5px] font-extrabold uppercase font-sans ${
+                          validateCNPJ(cnpj) ? 'text-emerald-400' : 'text-rose-500'
+                        }`}>
+                          {validateCNPJ(cnpj) ? '✓ Válido' : '✗ Inválido'}
+                        </span>
+                      )}
+                    </div>
                     <input
                       id="supplier-cnpj-input"
                       type="text"
                       required
                       placeholder="Ex: 12.345.678/0001-99"
                       value={cnpj}
-                      onChange={(e) => setCnpj(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white"
+                      onChange={(e) => setCnpj(formatCNPJ(e.target.value))}
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-mono"
                     />
                   </div>
 
@@ -666,8 +851,19 @@ export default function LoginOnboarding({ onLogin }: LoginOnboardingProps) {
                       required
                       placeholder="Ex: (11) 98765-4321"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white"
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, "");
+                        if (val.length > 11) val = val.substring(0, 11);
+                        if (val.length > 6) {
+                          val = `(${val.substring(0, 2)}) ${val.substring(2, 7)}-${val.substring(7)}`;
+                        } else if (val.length > 2) {
+                          val = `(${val.substring(0, 2)}) ${val.substring(2)}`;
+                        } else if (val.length > 0) {
+                          val = `(${val}`;
+                        }
+                        setPhone(val);
+                      }}
+                      className="w-full bg-[#1A1A1A] border border-neutral-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-[#FF8C00] transition-colors text-white font-sans"
                     />
                   </div>
                 </>
